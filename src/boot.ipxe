@@ -1,0 +1,96 @@
+#!ipxe
+  
+# see https://ipxe.org/docs
+# see https://ipxe.org/settings
+
+# console -x 1920 -y 1080 ||
+
+# Always require signed images
+imgtrust --permanent
+echo Signed images are required to boot
+echo
+
+# show the system information.
+# NB you can run "config" to interactively see all the possible variables.
+echo Platform..... ${platform}
+echo Architecture. ${buildarch}
+echo Product...... ${smbios/product}
+echo Manufacturer. ${smbios/manufacturer}
+echo Asset........ ${smbios/asset}
+echo UUID......... ${smbios/uuid}
+echo Serial....... ${smbios/serial}
+
+# Prompt to enter shell
+prompt --timeout 2000 Press any key for the iPXE command line... && shell ||
+
+# show the available network interfaces.
+echo Network interfaces:
+ifstat
+echo
+
+set idx:int32 0
+:loop isset ${net${idx}/mac} || goto loop_done
+  echo Configuring net${idx} ${net${idx}/mac} (${net${idx}/chip})...
+
+ifconf ${net${idx}} || goto next_loop
+
+isset ${net${idx}/ip} || goto no_ipv4
+echo MAC address.. ${net${idx}/mac}
+echo IP address... ${net${idx}/ip}
+echo Subnet mask.. ${net${idx}/netmask}
+echo Gateway...... ${net${idx}/gateway}
+echo DNS.......... ${net${idx}/dns}
+echo Hostname..... ${hostname}
+echo Domain....... ${domain}
+echo Next Server.. ${next-server}
+echo Filename..... ${filename}
+echo
+:no_ipv4
+
+isset ${net${idx}/ip6} || goto no_ipv6
+echo MAC address.. ${net${idx}/mac}
+echo IP address... ${net${idx}/ip6}/${net${idx}/len6}
+echo Gateway...... ${net${idx}/gateway6}
+echo DNS.......... ${net${idx}/dns6}
+echo
+:no_ipv6
+
+isset ${next-server} && set nextserver ${next-server} || set nextserver master1.node.universalis.dev
+isset ${filename} || set filename /boot/default.ipxe
+
+set url http://${nextserver}${filename}?mac=${net${idx}/mac}&uuid=${smbios/uuid}&asset=${smbios/asset}
+set verifyurl http://${nextserver}${filename}.sig?mac=${net${idx}/mac}&uuid=${smbios/uuid}&asset=${smbios/asset}
+
+:load_image
+echo Loading ${url}
+imgload --name next ${url} || goto next_loop
+echo Verifying via ${verifyurl}
+imgverify next ${verifyurl} || goto next_loop
+imgstat
+chain --autofree || goto next_loop
+
+:next_loop
+inc idx && goto loop
+:loop_done
+
+:fail
+prompt --timeout 5000 Press any key for the iPXE command line... && shell ||
+menu Failed to load default target. Select action
+item --default reboot Reboot
+item shell Shell
+item recovery Linux Recovery
+choose --timeout 10000 --default reboot target
+clear menu
+goto ${target}
+
+:recovery
+echo Not currently supported
+
+:shell
+shell
+
+:reboot
+reboot
+
+:exit
+exit 0
